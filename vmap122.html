@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Work Regions Map</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
+    <style>
+        body { margin: 0; }
+        #map { height: 100vh; width: 100%; }
+        #search { 
+            position: absolute; 
+            bottom: 20px; 
+            right: 20px; 
+            z-index: 1000; 
+            background: none; 
+            display: flex;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        }
+        #location-input { 
+            border: none; 
+            padding: 10px; 
+            border-radius: 12px 0 0 12px; 
+            outline: none; 
+            width: 200px; 
+        }
+        #search button { 
+            border: none; 
+            background-color: #4CAF50; 
+            color: white; 
+            padding: 10px; 
+            border-radius: 0 12px 12px 0; 
+            cursor: pointer; 
+        }
+        #search button:hover { 
+            background-color: #45a049; 
+        }
+        #legend { 
+            position: absolute; 
+            top: 120px; 
+            right: 20px; 
+            padding: 10px; 
+            z-index: 1000; 
+        }
+        .legend-item { 
+            display: flex; 
+            align-items: center; 
+            margin-bottom: 5px; 
+            cursor: pointer; 
+        }
+        .legend-color { 
+            width: 12px; 
+            height: 12px; 
+            border-radius: 50%; 
+            margin-right: 8px; 
+        }
+        .legend-text { 
+            font-size: 14px; 
+        }
+        .triangle-marker {
+            width: 0;
+            height: 0;
+            border-left: 5px solid transparent;
+            border-right: 5px solid transparent;
+            border-bottom: 10px solid rgba(0, 0, 0, 0.8); /* 20% transparency */
+        }
+        .suggestions {
+            position: absolute;
+            bottom: 60px;
+            right: 20px;
+            background: white;
+            z-index: 1000;
+            max-height: 150px;
+            overflow-y: auto;
+            border: 1px solid #ccc;
+        }
+        .suggestion-item {
+            padding: 5px;
+            cursor: pointer;
+        }
+        .suggestion-item:hover {
+            background: #eee;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div id="search">
+        <input type="text" id="location-input" placeholder="Enter location" oninput="showSuggestions()">
+        <button onclick="searchLocation()">Search</button>
+        <div id="suggestions" class="suggestions"></div>
+    </div>
+    <div id="legend">
+        <div class="legend-title">Investigators</div>
+        <div class="legend-item" onclick="zoomToRegion('Yarden')">
+            <div class="legend-color" style="background: blue;"></div>
+            <div class="legend-text">Yarden</div>
+        </div>
+        <div class="legend-item" onclick="zoomToRegion('Guy')">
+            <div class="legend-color" style="background: green;"></div>
+            <div class="legend-text">Guy</div>
+        </div>
+        <div class="legend-item" onclick="zoomToRegion('Ofri')">
+            <div class="legend-color" style="background: red;"></div>
+            <div class="legend-text">Ofri</div>
+        </div>
+        <div class="legend-item" onclick="zoomToRegion('Lior')">
+            <div class="legend-color" style="background: orange;"></div>
+            <div class="legend-text">Lior</div>
+        </div>
+        <div class="legend-item" onclick="zoomToRegion('Israel')">
+            <div class="legend-color" style="background: teal;"></div>
+            <div class="legend-text">Israel</div>
+        </div>
+        <div class="legend-item" onclick="zoomToRegion('Ron')">
+            <div class="legend-color" style="background: brown;"></div>
+            <div class="legend-text">Ron</div>
+        </div>
+    </div>
+    <script>
+        var map = L.map('map').setView([32.8, 35.3], 10);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }).addTo(map);
+
+        function createSmoothPolygon(points, color) {
+            let path = [];
+            for (let i = 0; i < points.length - 1; i++) {
+                let p1 = points[i];
+                let p2 = points[i + 1];
+                let midPoint = [(p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2];
+                path.push(p1, midPoint);
+            }
+            path.push(points[points.length - 1]);
+            return L.polygon(path, { color: color, fillColor: color, fillOpacity: 0.05, smoothFactor: 1 }).addTo(map);
+        }
+
+        var regions = {
+            "Yarden": {
+                "area": [
+                    [33.27432249736739, 35.7771637570132],     // North East
+                    [32.94325811878384, 35.88568186391638],    // Middle East
+                    [32.69173528012841, 35.656946164584475],   // South East
+                    [32.64256277175697, 35.54630634466247],    // South West
+                    [32.56912760892782, 35.19152028969327],    // South West
+                    [32.72693123056238, 35.09489948141998],    // Middle West
+                    [32.859172950533804, 35.1696713629935],    // Middle North
+                    [32.94152034984022, 35.246385370292145],   // North West
+                    [32.94478005736561, 35.46633122747482],    // North
+                    [33.25106108525061, 35.55712565445109],    // Middle North
+                    [33.27432249736739, 35.7771637570132]      // Close the polygon
+                ],
+                "color": "blue",
+                "center": [32.9, 35.4]
+            },
+            "Guy": {
+                "area": [
+                    [32.97169210285396, 35.505783327433214],  // North East
+                    [32.77514021077253, 35.404792735030846],  // North West
+                    [32.78820279738054, 34.956161450866134],  // Middle West
+                    [32.841249828379404, 34.98626441563029],  // Additional point
+                    [32.83064295609666, 35.04695587685845],   // Additional point
+                    [33.0763377745304, 35.10648323544886],    // Additional point
+                    [33.0530707146968, 35.49761725873454],    // Additional point
+                    [32.97169210285396, 35.505783327433214]   // Close the polygon
+                ],
+                "color": "green",
+                "center": [32.9, 35.2]
+            },
+            "Ofri": {
+                "area": [
+                    [32.72755141741023, 35.329137209099265],  // North East
+                    [32.7703497880421, 34.95336627889811],    // North West
+                    [32.28458943703082, 34.836930348980275],  // South West
+                    [32.17616034341886, 34.9816187925482],    // South East
+                    [32.26611635483035, 35.01754813805711],   // Middle East
+                    [32.46501673117431, 35.070471092273166],  // South Middle East
+                    [32.55714134919315, 35.2243846401366],    // South East
+                    [32.45395543706201, 35.51327599720918],   // East
+                    [32.595191938393626, 35.52589982190272],  // North East
+                    [32.72755141741023, 35.329137209099265]   // Close the polygon
+                ],
+                "color": "red",
+                "center": [32.5, 35.1]
+            },
+            "Lior": {
+                "area": [
+                    [32.832110388841095, 35.28079323644857],  // North East
+                    [32.697860759952384, 35.224496956553025], // North West
+                    [32.67939472377183, 35.02991391725292],   // South West
+                    [32.73623845206288, 35.02154165003043],   // South East
+                    [32.888371791776024, 35.18407911453112],  // Middle East
+                    [32.832110388841095, 35.28079323644857]   // Close the polygon
+                ],
+                "color": "orange",
+                "center": [32.75, 35.1]
+            },
+            "Israel": {
+                "areas": [
+                    [
+                        [32.7450694586656, 34.95017825648341],    // South West
+                        [32.83687385423536, 34.96173043501951],   // North West
+                        [32.838994093596305, 35.05680474704506],  // North East
+                        [33.0344202061674, 35.093076944748944],   // Far North East
+                        [33.050343663409116, 35.13250322166636],  // East
+                        [32.73325938197043, 35.12672924436687],   // South East
+                        [32.7450694586656, 34.95017825648341]     // Close the polygon
+                    ],
+                    [
+                        [32.917, 35.305],                         // North West
+                        [32.920, 35.315],                         // North East
+                        [32.908, 35.322],                         // South East
+                        [32.905, 35.312],                         // South West
+                        [32.917, 35.305]                          // Close the polygon
+                    ]
+                ],
+                "color": "teal",
+                "center": [32.85, 35.05]
+            },
+            "Ron": {
+                "area": [
+                    [32.21115593443734, 34.81245958518707],    // North West
+                    [31.60839367458613, 34.50265464248946],    // South West
+                    [31.54634755040306, 34.5803397128615],     // South West
+                    [31.440360183016296, 34.48226231381607],   // South West
+                    [30.90085976302491, 35.027217950508465],   // South East
+                    [31.268707699570854, 35.26541734111947],   // East
+                    [31.386701877022958, 34.874037858051246],  // Middle West
+                    [31.65244534206503, 34.893263931446434],   // North East
+                    [32.149105486115275, 34.97703468224941],   // New point
+                    [32.21115593443734, 34.81245958518707]     // Close the polygon
+                ],
+                "color": "brown",
+                "center": [31.5, 34.8]
+            }
+        };
+
+        for (var employee in regions) {
+            if (Array.isArray(regions[employee].areas)) {
+                regions[employee].areas.forEach(function(area) {
+                    createSmoothPolygon(area, regions[employee].color).bindPopup(employee);
+                });
+            } else {
+                createSmoothPolygon(regions[employee].area, regions[employee].color).bindPopup(employee);
+            }
+        }
+
+        // Markers for homes
+        var homeIcon = L.divIcon({
+            className: 'triangle-marker',
+            html: '<div class="triangle-marker"></div>',
+            iconSize: [10, 10],
+            iconAnchor: [5, 10]
+        });
+
+        var homes = {
+            "Yarden": { "location": [32.7464, 35.2975], "popup": "Yarden's Home - Hosheia" },
+            "Ofri": { "location": [32.7093, 35.1228], "popup": "Ofri's Home - Tivon" },
+            "Guy": { "location": [32.8248, 35.1047], "popup": "Guy's Home - Kiryat Bialik" },
+            "Lior": { "location": [32.6951, 35.1093], "popup": "Lior's Home - Nazareth" },
+            "Israel": { "location": [32.917, 35.305], "popup": "Israel's Home - Carmiel" },
+            "Ron": { "location": [32.072, 34.811], "popup": "Ron's Home - Giv'atayim" }
+        };
+
+        for (var name in homes) {
+            var home = homes[name];
+            L.marker(home.location, { icon: homeIcon }).addTo(map)
+                .bindPopup(home.popup);
+        }
+
+        // Initialize the geocoder
+        var geocoder = L.Control.Geocoder.nominatim();
+
+        function searchLocation() {
+            var input = document.getElementById("location-input").value;
+            
+            geocoder.geocode(input, function(results) {
+                if (results.length > 0) {
+                    var latlng = results[0].center;
+                    map.setView(latlng, 13);
+                    var marker = L.marker(latlng).addTo(map).bindPopup(input).openPopup();
+                    
+                    var employees = [];
+                    for (var employee in regions) {
+                        if (regions.hasOwnProperty(employee)) {
+                            if (Array.isArray(regions[employee].areas)) {
+                                regions[employee].areas.forEach(function(area) {
+                                    if (isPointInPolygon([latlng.lat, latlng.lng], area)) {
+                                        employees.push(employee);
+                                    }
+                                });
+                            } else {
+                                var polygon = regions[employee].area;
+                                if (isPointInPolygon([latlng.lat, latlng.lng], polygon)) {
+                                    employees.push(employee);
+                                }
+                            }
+                        }
+                    }
+                    
+                    if (employees.length > 0) {
+                        marker.bindPopup(input + " is in the area of: " + employees.join(", ")).openPopup();
+                    } else {
+                        marker.bindPopup(input + " is not in any defined area.").openPopup();
+                    }
+                } else {
+                    alert("Location not found. Please try again.");
+                }
+            });
+        }
+
+        function showSuggestions() {
+            var input = document.getElementById("location-input").value;
+            var suggestionsDiv = document.getElementById("suggestions");
+            suggestionsDiv.innerHTML = '';
+
+            if (input.length < 3) {
+                return;
+            }
+
+            geocoder.geocode(input, function(results) {
+                if (results.length > 0) {
+                    results.forEach(function(result) {
+                        var suggestionItem = document.createElement('div');
+                        suggestionItem.className = 'suggestion-item';
+                        suggestionItem.innerHTML = result.name;
+                        suggestionItem.onclick = function() {
+                            document.getElementById("location-input").value = result.name;
+                            suggestionsDiv.innerHTML = '';
+                        };
+                        suggestionsDiv.appendChild(suggestionItem);
+                    });
+                }
+            });
+        }
+
+        function isPointInPolygon(point, polygon) {
+            var x = point[0], y = point[1];
+
+            var inside = false;
+            for (var i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+                var xi = polygon[i][0], yi = polygon[i][1];
+                var xj = polygon[j][0], yj = polygon[j][1];
+
+                var intersect = ((yi > y) != (yj > y))
+                    && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+                if (intersect) inside = !inside;
+            }
+
+            return inside;
+        }
+
+        function zoomToRegion(employee) {
+            var region = regions[employee];
+            map.setView(region.center, 13);
+        }
+    </script>
+</body>
+</html>
